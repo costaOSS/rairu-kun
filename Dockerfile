@@ -1,19 +1,62 @@
-FROM debian
-ARG NGROK_TOKEN
-ARG REGION=ap
+FROM debian:stable-slim
+
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt update && apt upgrade -y && apt install -y \
-    ssh wget unzip vim curl python3
-RUN wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O /ngrok-stable-linux-amd64.zip\
-    && cd / && unzip ngrok-stable-linux-amd64.zip \
-    && chmod +x ngrok
-RUN mkdir /run/sshd \
-    && echo "/ngrok tcp --authtoken ${NGROK_TOKEN} --region ${REGION} 22 &" >>/openssh.sh \
-    && echo "sleep 5" >> /openssh.sh \
-    && echo "curl -s http://localhost:4040/api/tunnels | python3 -c \"import sys, json; print(\\\"ssh info:\\\n\\\",\\\"ssh\\\",\\\"root@\\\"+json.load(sys.stdin)['tunnels'][0]['public_url'][6:].replace(':', ' -p '),\\\"\\\nROOT Password:craxid\\\")\" || echo \"\nError：NGROK_TOKEN，Ngrok Token\n\"" >> /openssh.sh \
-    && echo '/usr/sbin/sshd -D' >>/openssh.sh \
-    && echo 'PermitRootLogin yes' >>  /etc/ssh/sshd_config  \
-    && echo root:craxid|chpasswd \
-    && chmod 755 /openssh.sh
-EXPOSE 80 443 3306 4040 5432 5700 5701 5010 6800 6900 8080 8888 9000
-CMD /openssh.sh
+
+# Install required packages
+RUN apt update && apt install -y \
+    openssh-server \
+    wget \
+    unzip \
+    curl \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ngrok v3
+RUN wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip -O /ngrok.zip \
+    && unzip /ngrok.zip -d / \
+    && chmod +x /ngrok \
+    && rm /ngrok.zip
+
+# Configure SSH
+RUN mkdir -p /run/sshd \
+    && echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config \
+    && echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config \
+    && echo root:craxid | chpasswd
+
+# Create startup script
+RUN cat << 'EOF' > /start.sh
+#!/bin/bash
+
+if [ -z "$NGROK_TOKEN" ]; then
+  echo "ERROR: NGROK_TOKEN not set"
+  exit 1
+fi
+
+echo "Starting ngrok..."
+/ngrok config add-authtoken $NGROK_TOKEN
+/ngrok tcp 22 --region=${REGION:-ap} &
+
+sleep 5
+
+echo "Fetching tunnel info..."
+curl -s http://localhost:4040/api/tunnels | python3 - <<PY
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    url = data["tunnels"][0]["public_url"][6:]
+    print("\nSSH INFO:")
+    print("ssh root@" + url.replace(":", " -p "))
+    print("ROOT PASSWORD: craxid\n")
+except Exception:
+    print("Could not fetch tunnel info.")
+PY
+
+echo "Starting SSH server..."
+/usr/sbin/sshd -D
+EOF
+
+RUN chmod +x /start.sh
+
+EXPOSE 22
+
+CMD ["/start.sh"]

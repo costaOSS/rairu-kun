@@ -1,16 +1,11 @@
 services:
-  # A Docker web service
   - type: web
-    name: Ngrok
+    name: ngrok-ssh
     env: docker
-    repo: https://github.com/craxid/rairu-kun # optional
-    region: Singapore # optional (defaults to Singapore)
-    plan: free # optional (defaults to starter)
-    healthCheckPath: /
+    plan: free
+    region: singapore
     envVars:
-      - key: PORT # ngrok port
-        value: 22
-      - key: NGROK_TOKEN # ngrok token
+      - key: NGROK_TOKEN
         sync: false
-      - key: REGION # ngrok region
-        sync: false
+      - key: REGION
+        value: ap
